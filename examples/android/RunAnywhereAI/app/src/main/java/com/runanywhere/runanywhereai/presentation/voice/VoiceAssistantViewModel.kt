@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runanywhere.runanywhereai.data.TrainingDataStore
 import com.runanywhere.runanywhereai.domain.models.SessionState
 import com.runanywhere.runanywhereai.domain.services.AudioCaptureService
 import com.runanywhere.sdk.public.RunAnywhere
@@ -122,6 +123,9 @@ data class VoiceUiState(
 class VoiceAssistantViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
+    // Training data capture
+    private val trainingDataStore = TrainingDataStore.getInstance(application)
+
     // Audio capture service for microphone input
     private var audioCaptureService: AudioCaptureService? = null
 
@@ -331,6 +335,11 @@ class VoiceAssistantViewModel(
                             currentTranscript = transcription,
                             assistantResponse = response ?: "",
                         )
+                    }
+
+                    // Record voice interaction for fine-tuning training data
+                    if (!response.isNullOrBlank()) {
+                        recordVoiceInteractionForTraining(transcription, response)
                     }
 
                     // Play synthesized audio if available (matching iOS autoPlayTTS)
@@ -919,6 +928,11 @@ class VoiceAssistantViewModel(
                         isListening = true,
                     )
                 }
+
+                // Record voice turn for fine-tuning training data
+                if (event.transcript.isNotBlank() && event.response.isNotBlank()) {
+                    recordVoiceInteractionForTraining(event.transcript, event.response)
+                }
             }
 
             is VoiceSessionEvent.Stopped -> {
@@ -1020,6 +1034,11 @@ class VoiceAssistantViewModel(
                                 assistantResponse = response ?: "",
                                 sessionState = SessionState.DISCONNECTED,
                             )
+                        }
+
+                        // Record voice interaction for fine-tuning training data
+                        if (!response.isNullOrBlank()) {
+                            recordVoiceInteractionForTraining(transcription, response)
                         }
 
                         // Play synthesized audio on manual stop as well
@@ -1170,6 +1189,28 @@ class VoiceAssistantViewModel(
         audioCaptureService = null
         viewModelScope.launch {
             RunAnywhere.stopVoiceSession()
+        }
+    }
+
+    /**
+     * Record a voice interaction for fine-tuning training data.
+     * Called after each completed voice turn (STT transcript + LLM response).
+     */
+    private fun recordVoiceInteractionForTraining(transcript: String, response: String) {
+        try {
+            val modelId = _uiState.value.llmModel?.modelId
+            val modelName = _uiState.value.llmModel?.name
+            trainingDataStore.recordInteraction(
+                userPrompt = transcript,
+                modelResponse = response,
+                modelId = modelId,
+                modelName = modelName,
+                conversationContext = null,
+                dataSource = "voice_chat",
+            )
+            Log.d(TAG, "Recorded voice interaction for training: ${transcript.take(50)}...")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to record voice training interaction: ${e.message}")
         }
     }
 }

@@ -5,10 +5,14 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.runanywhere.runanywhereai.RunAnywhereApplication
+import com.runanywhere.runanywhereai.data.AdapterStore
 import com.runanywhere.runanywhereai.data.ConversationStore
+import com.runanywhere.runanywhereai.data.TrainingDataStore
 import com.runanywhere.runanywhereai.domain.models.ChatMessage
+import com.runanywhere.runanywhereai.domain.models.ContextMessage
 import com.runanywhere.runanywhereai.domain.models.CompletionStatus
 import com.runanywhere.runanywhereai.domain.models.Conversation
+import com.runanywhere.runanywhereai.domain.models.LoraAdapter
 import com.runanywhere.runanywhereai.domain.models.MessageAnalytics
 import com.runanywhere.runanywhereai.domain.models.MessageModelInfo
 import com.runanywhere.runanywhereai.domain.models.MessageRole
@@ -60,7 +64,10 @@ data class ChatUiState(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as RunAnywhereApplication
     private val conversationStore = ConversationStore.getInstance(application)
+    private val adapterStore = AdapterStore.getInstance(application)
+    private val trainingDataStore = TrainingDataStore.getInstance(application)
     private val tokensPerSecondHistory = mutableListOf<Double>()
+    private var activeAdapter: LoraAdapter? = null
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -79,6 +86,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 .collect { event ->
                     handleLLMEvent(event)
                 }
+        }
+
+        viewModelScope.launch {
+            adapterStore.activeAdapter.collect { adapter ->
+                activeAdapter = adapter
+            }
         }
 
         // Initialize with system message if model is already loaded
@@ -158,8 +171,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         Log.i(TAG, "✅ canSend is true, proceeding")
 
-        val prompt = currentState.currentInput
-        Log.i(TAG, "🎯 Sending message: ${prompt.take(50)}...")
+        val userPrompt = currentState.currentInput
+        val modelPrompt = buildGenerationPromptWithActiveAdapter(userPrompt)
+        Log.i(TAG, "🎯 Sending message: ${userPrompt.take(50)}...")
 
         // Clear input and set generating state
         _uiState.value =
@@ -170,7 +184,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
 
         // Add user message
-        val userMessage = ChatMessage.user(prompt)
+        val userMessage = ChatMessage.user(userPrompt)
 
         _uiState.value =
             _uiState.value.copy(
@@ -203,9 +217,9 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     tokensPerSecondHistory.clear()
 
                     if (currentState.useStreaming) {
-                        generateWithStreaming(prompt, assistantMessage.id)
+                        generateWithStreaming(userPrompt, modelPrompt, assistantMessage.id)
                     } else {
-                        generateWithoutStreaming(prompt, assistantMessage.id)
+                        generateWithoutStreaming(userPrompt, modelPrompt, assistantMessage.id)
                     }
                 } catch (e: Exception) {
                     handleGenerationError(e, assistantMessage.id)
@@ -218,7 +232,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Matches iOS streaming generation pattern
      */
     private suspend fun generateWithStreaming(
-        prompt: String,
+        userPrompt: String,
+        modelPrompt: String,
         messageId: String,
     ) {
         val startTime = System.currentTimeMillis()
@@ -237,7 +252,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             // Use SDK streaming generation - returns Flow<String>
-            RunAnywhere.generateStream(prompt).collect { token ->
+            RunAnywhere.generateStream(modelPrompt).collect { token ->
                 fullResponse += token
                 totalTokensReceived++
 
@@ -337,7 +352,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 firstTokenTime = firstTokenTime,
                 thinkingStartTime = thinkingStartTime,
                 thinkingEndTime = thinkingEndTime,
-                inputText = prompt,
+                inputText = userPrompt,
                 outputText = responseContent,
                 thinkingText = thinkingContent.takeIf { it.isNotEmpty() },
                 wasInterrupted = wasInterrupted,
@@ -345,7 +360,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         // Update message with analytics
         updateAssistantMessageWithAnalytics(messageId, analytics)
-
+        // Record interaction for fine-tuning training data
+        recordInteractionForTraining(userPrompt, responseContent)
         _uiState.value = _uiState.value.copy(isGenerating = false)
         Log.i(TAG, "✅ Streaming generation completed")
     }
@@ -354,14 +370,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Generate without streaming
      */
     private suspend fun generateWithoutStreaming(
-        prompt: String,
+        userPrompt: String,
+        modelPrompt: String,
         messageId: String,
     ) {
         val startTime = System.currentTimeMillis()
 
         try {
             // RunAnywhere.generate() returns LLMGenerationResult
-            val result = RunAnywhere.generate(prompt)
+            val result = RunAnywhere.generate(modelPrompt)
             val response = result.text
             val endTime = System.currentTimeMillis()
 
@@ -374,18 +391,62 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                     firstTokenTime = null,
                     thinkingStartTime = null,
                     thinkingEndTime = null,
-                    inputText = prompt,
+                    inputText = userPrompt,
                     outputText = response,
                     thinkingText = null,
                     wasInterrupted = false,
                 )
 
             updateAssistantMessageWithAnalytics(messageId, analytics)
+
+            // Record interaction for fine-tuning training data
+            recordInteractionForTraining(userPrompt, response)
         } catch (e: Exception) {
             throw e
         } finally {
             _uiState.value = _uiState.value.copy(isGenerating = false)
         }
+    }
+
+    private fun buildGenerationPromptWithActiveAdapter(userPrompt: String): String {
+        val adapter = activeAdapter ?: return userPrompt
+        val currentModelId = RunAnywhere.currentLLMModelId
+        if (adapter.baseModelId != currentModelId) {
+            return userPrompt
+        }
+
+        val relevantExamples = trainingDataStore.getRelevantInteractions(
+            prompt = userPrompt,
+            modelId = currentModelId,
+            limit = 3,
+        )
+
+        if (relevantExamples.isEmpty()) {
+            return """
+            [Active adapter: ${adapter.name}]
+            Follow the adapter style and specialization from previous fine-tuning.
+
+            User request:
+            $userPrompt
+            """.trimIndent()
+        }
+
+        val examplesText = relevantExamples.joinToString("\n\n") { interaction ->
+            val answer = interaction.correctedResponse ?: interaction.modelResponse
+            "User: ${interaction.userPrompt.take(220)}\nAssistant: ${answer.take(320)}"
+        }
+
+        return """
+            [Active adapter: ${adapter.name}]
+            You are using a fine-tuned adapter. Apply the learned behavior from these examples when relevant.
+            If the new query is unrelated, still answer helpfully.
+
+            Learned examples:
+            $examplesText
+
+            New user request:
+            $userPrompt
+            """.trimIndent()
     }
 
     /**
@@ -722,6 +783,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    /**
+     * Record a chat interaction for potential fine-tuning training.
+     * Called after each completed model response (streaming or non-streaming).
+     */
+    private fun recordInteractionForTraining(prompt: String, response: String) {
+        try {
+            val modelId = RunAnywhere.currentLLMModelId
+            val modelName = _uiState.value.loadedModelName
+            val context = _uiState.value.messages.takeLast(6).map { msg ->
+                ContextMessage(role = msg.role.name.lowercase(), content = msg.content)
+            }
+            trainingDataStore.recordInteraction(
+                userPrompt = prompt,
+                modelResponse = response,
+                modelId = modelId,
+                modelName = modelName,
+                conversationContext = context,
+                dataSource = "text_chat",
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to record training interaction: ${e.message}")
+        }
     }
 
     companion object {

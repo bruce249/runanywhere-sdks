@@ -18,6 +18,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.runanywhere.runanywhereai.presentation.chat.ChatScreen
+import com.runanywhere.runanywhereai.presentation.finetune.FineTuneScreen
 import com.runanywhere.runanywhereai.presentation.settings.SettingsScreen
 import com.runanywhere.runanywhereai.presentation.stt.SpeechToTextScreen
 import com.runanywhere.runanywhereai.presentation.tts.TextToSpeechScreen
@@ -26,7 +27,7 @@ import com.runanywhere.runanywhereai.ui.theme.AppColors
 
 /**
  * Main navigation component
- * 5 tabs: Chat, STT, TTS, Voice, Settings
+ * 6 tabs: Chat, STT, TTS, Voice, Fine-Tune, Settings
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +58,10 @@ fun AppNavigation() {
 
             composable(NavigationRoute.VOICE) {
                 VoiceAssistantScreen()
+            }
+
+            composable(NavigationRoute.FINE_TUNE) {
+                FineTuneScreen()
             }
 
             composable(NavigationRoute.SETTINGS) {
@@ -105,6 +110,12 @@ fun RunAnywhereBottomNav(navController: NavController) {
                 label = "Voice",
                 icon = Icons.Outlined.Mic,
                 selectedIcon = Icons.Filled.Mic,
+            ),
+            BottomNavItem(
+                route = NavigationRoute.FINE_TUNE,
+                label = "Fine-Tune",
+                icon = Icons.Outlined.Psychology,
+                selectedIcon = Icons.Filled.Psychology,
             ),
             BottomNavItem(
                 route = NavigationRoute.SETTINGS,
@@ -164,6 +175,7 @@ object NavigationRoute {
     const val STT = "stt"
     const val TTS = "tts"
     const val VOICE = "voice"
+    const val FINE_TUNE = "fine_tune"
     const val SETTINGS = "settings"
 }
 
