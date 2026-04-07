@@ -41,6 +41,8 @@ data class OtaTrainingInteraction(
     val tags: List<String> = emptyList(),
     val timestamp: Long = System.currentTimeMillis(),
     val frequencyCount: Int = 1,
+    /** Source of the interaction: "text_chat", "voice_chat", "video_analysis" */
+    val dataSource: String = "text_chat",
 )
 
 /**

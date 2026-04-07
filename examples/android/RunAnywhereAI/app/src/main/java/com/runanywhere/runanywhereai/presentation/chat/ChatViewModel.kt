@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.runanywhere.runanywhereai.RunAnywhereApplication
 import com.runanywhere.runanywhereai.data.AdapterStore
 import com.runanywhere.runanywhereai.data.ConversationStore
+import com.runanywhere.runanywhereai.data.PersonalizationStore
 import com.runanywhere.runanywhereai.data.TrainingDataStore
 import com.runanywhere.runanywhereai.domain.models.ChatMessage
 import com.runanywhere.runanywhereai.domain.models.ContextMessage
@@ -26,6 +27,7 @@ import com.runanywhere.sdk.public.extensions.currentLLMModelId
 import com.runanywhere.sdk.public.extensions.generate
 import com.runanywhere.sdk.public.extensions.generateStream
 import com.runanywhere.sdk.public.extensions.isLLMModelLoaded
+import com.runanywhere.sdk.public.extensions.LLM.LLMGenerationOptions
 import com.runanywhere.sdk.public.extensions.loadLLMModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +68,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val conversationStore = ConversationStore.getInstance(application)
     private val adapterStore = AdapterStore.getInstance(application)
     private val trainingDataStore = TrainingDataStore.getInstance(application)
+    private val personalizationStore = PersonalizationStore.getInstance(application)
     private val tokensPerSecondHistory = mutableListOf<Double>()
     private var activeAdapter: LoraAdapter? = null
 
@@ -252,7 +255,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             // Use SDK streaming generation - returns Flow<String>
-            RunAnywhere.generateStream(modelPrompt).collect { token ->
+            // Inject personalization system prompt if configured
+            val genOptions = personalizationStore.buildSystemPrompt()?.let { systemPrompt ->
+                LLMGenerationOptions(systemPrompt = systemPrompt)
+            }
+            RunAnywhere.generateStream(modelPrompt, genOptions).collect { token ->
                 fullResponse += token
                 totalTokensReceived++
 
@@ -378,7 +385,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
         try {
             // RunAnywhere.generate() returns LLMGenerationResult
-            val result = RunAnywhere.generate(modelPrompt)
+            // Inject personalization system prompt if configured
+            val genOptions = personalizationStore.buildSystemPrompt()?.let { systemPrompt ->
+                LLMGenerationOptions(systemPrompt = systemPrompt)
+            }
+            val result = RunAnywhere.generate(modelPrompt, genOptions)
             val response = result.text
             val endTime = System.currentTimeMillis()
 

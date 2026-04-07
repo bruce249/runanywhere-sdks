@@ -5,6 +5,9 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runanywhere.runanywhereai.data.PersonalizationProfile
+import com.runanywhere.runanywhereai.data.PersonalizationStore
+import com.runanywhere.runanywhereai.data.PersonalizationTone
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.runanywhere.sdk.public.RunAnywhere
@@ -68,6 +71,11 @@ data class SettingsUiState(
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    // Personalization
+    private val personalizationStore = PersonalizationStore.getInstance(application)
+    val personalizationProfile: StateFlow<PersonalizationProfile> = personalizationStore.profile
+    val systemPromptPreview: String? get() = personalizationStore.buildSystemPrompt()
 
     private val encryptedPrefs by lazy {
         val masterKey = MasterKey.Builder(application)
@@ -506,4 +514,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val state = _uiState.value
         return state.isApiKeyConfigured && state.isBaseURLConfigured
     }
+
+    // =========================================================================
+    // Personalization
+    // =========================================================================
+
+    fun updatePersonalizationDisplayName(value: String) = personalizationStore.updateDisplayName(value)
+    fun updatePersonalizationAboutUser(value: String) = personalizationStore.updateAboutUser(value)
+    fun updatePersonalizationResponseStyle(value: String) = personalizationStore.updateResponseStyle(value)
+    fun updatePersonalizationTone(tone: PersonalizationTone) = personalizationStore.updateTone(tone)
+    fun updatePersonalizationCustomPrompt(value: String) = personalizationStore.updateCustomSystemPrompt(value)
+    fun updatePersonalizationEnabled(enabled: Boolean) = personalizationStore.updateEnabled(enabled)
+    fun resetPersonalization() = personalizationStore.resetToDefaults()
 }

@@ -115,6 +115,51 @@ class OtaFineTuningClient(
     }
 
     /**
+     * Convenience: record a text chat interaction.
+     */
+    fun recordChatInteraction(
+        userPrompt: String,
+        modelResponse: String,
+        modelId: String? = null,
+        conversationContext: List<OtaContextMessage>? = null,
+        rating: Int? = null,
+    ) {
+        recordInteraction(
+            OtaTrainingInteraction(
+                id = java.util.UUID.randomUUID().toString(),
+                userPrompt = userPrompt,
+                modelResponse = modelResponse,
+                modelId = modelId,
+                conversationContext = conversationContext,
+                rating = rating,
+                dataSource = "text_chat",
+            )
+        )
+    }
+
+    /**
+     * Convenience: record a voice chat interaction.
+     * Automatically sets dataSource to "voice_chat".
+     */
+    fun recordVoiceInteraction(
+        transcribedPrompt: String,
+        modelResponse: String,
+        modelId: String? = null,
+        rating: Int? = null,
+    ) {
+        recordInteraction(
+            OtaTrainingInteraction(
+                id = java.util.UUID.randomUUID().toString(),
+                userPrompt = transcribedPrompt,
+                modelResponse = modelResponse,
+                modelId = modelId,
+                rating = rating,
+                dataSource = "voice_chat",
+            )
+        )
+    }
+
+    /**
      * Upload training interactions to the cloud server.
      */
     suspend fun uploadTrainingData(

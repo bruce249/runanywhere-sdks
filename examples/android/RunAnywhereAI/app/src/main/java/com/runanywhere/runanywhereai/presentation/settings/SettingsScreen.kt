@@ -42,8 +42,10 @@ import com.runanywhere.runanywhereai.ui.theme.Dimensions
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val personalizationProfile by viewModel.personalizationProfile.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showDeleteConfirmDialog by remember { mutableStateOf<StoredModelInfo?>(null) }
+    var showPersonalization by remember { mutableStateOf(false) }
 
     // Refresh storage data when the screen appears
     // This ensures downloaded models and storage metrics are up-to-date
@@ -70,6 +72,13 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
                 fontWeight = FontWeight.Bold,
             )
         }
+
+        // 0. Personalization Card (premium entry point)
+        PersonalizationSettingsCard(
+            profile = personalizationProfile,
+            onClick = { showPersonalization = true },
+        )
+        Spacer(modifier = Modifier.height(8.dp))
 
         // 1. Generation Settings
         SettingsSection(title = "Generation Settings") {
@@ -414,6 +423,14 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
             },
         )
     }
+
+    // Personalization Full-Screen Dialog
+    if (showPersonalization) {
+        PersonalizationDialog(
+            viewModel = viewModel,
+            onDismiss = { showPersonalization = false },
+        )
+    }
 }
 
 /**
@@ -701,3 +718,42 @@ private fun ApiConfigurationDialog(
         },
     )
 }
+
+// =============================================================================
+// Personalization Full-Screen Dialog Extension
+// =============================================================================
+
+/**
+ * Extension of SettingsScreen to show PersonalizationScreen as a full-screen dialog.
+ * Must be called inside SettingsScreen composable scope.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PersonalizationDialog(
+    viewModel: SettingsViewModel,
+    onDismiss: () -> Unit,
+) {
+    val profile by viewModel.personalizationProfile.collectAsStateWithLifecycle()
+
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        PersonalizationScreen(
+            profile = profile,
+            onDisplayNameChange = viewModel::updatePersonalizationDisplayName,
+            onAboutUserChange = viewModel::updatePersonalizationAboutUser,
+            onResponseStyleChange = viewModel::updatePersonalizationResponseStyle,
+            onToneChange = viewModel::updatePersonalizationTone,
+            onCustomPromptChange = viewModel::updatePersonalizationCustomPrompt,
+            onEnabledChange = viewModel::updatePersonalizationEnabled,
+            onReset = viewModel::resetPersonalization,
+            onDismiss = onDismiss,
+            systemPromptPreview = viewModel.systemPromptPreview,
+        )
+    }
+}
+

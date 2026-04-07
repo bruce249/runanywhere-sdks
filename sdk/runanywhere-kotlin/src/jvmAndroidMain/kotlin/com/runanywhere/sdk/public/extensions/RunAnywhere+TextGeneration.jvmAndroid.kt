@@ -25,6 +25,16 @@ import kotlinx.coroutines.launch
 
 private val llmLogger = SDKLogger.llm
 
+/**
+ * Build the effective prompt by prepending the system prompt (if any) to the user prompt.
+ * Uses a simple system/user format so the model correctly distinguishes system
+ * instructions from user input.
+ */
+private fun buildEffectivePrompt(prompt: String, options: LLMGenerationOptions?): String {
+    val systemPrompt = options?.systemPrompt?.takeIf { it.isNotBlank() } ?: return prompt
+    return "[INST] <<SYS>>\n$systemPrompt\n<</SYS>>\n\n$prompt [/INST]"
+}
+
 actual suspend fun RunAnywhere.chat(prompt: String): String {
     val result = generate(prompt, null)
     return result.text
@@ -52,8 +62,11 @@ actual suspend fun RunAnywhere.generate(
             topP = opts.topP,
         )
 
+    // Build effective prompt with system prompt prepended
+    val effectivePrompt = buildEffectivePrompt(prompt, options)
+
     // Call CppBridgeLLM to generate
-    val cppResult = CppBridgeLLM.generate(prompt, config)
+    val cppResult = CppBridgeLLM.generate(effectivePrompt, config)
 
     val endTime = System.currentTimeMillis()
     val latencyMs = (endTime - startTime).toDouble()
@@ -97,9 +110,12 @@ actual fun RunAnywhere.generateStream(
 
         // Start generation in a separate coroutine
         val scope = CoroutineScope(Dispatchers.IO)
+        // Build effective prompt with system prompt prepended
+        val effectivePrompt = buildEffectivePrompt(prompt, options)
+
         scope.launch {
             try {
-                CppBridgeLLM.generateStream(prompt, config) { token ->
+                CppBridgeLLM.generateStream(effectivePrompt, config) { token ->
                     channel.trySend(token)
                     true // Continue generation
                 }
@@ -144,10 +160,13 @@ actual suspend fun RunAnywhere.generateStreamWithMetrics(
 
     // Start generation in a separate coroutine
     val scope = CoroutineScope(Dispatchers.IO)
+    // Build effective prompt with system prompt prepended
+    val effectivePrompt = buildEffectivePrompt(prompt, options)
+
     scope.launch {
         try {
             val cppResult =
-                CppBridgeLLM.generateStream(prompt, config) { token ->
+                CppBridgeLLM.generateStream(effectivePrompt, config) { token ->
                     if (firstTokenTime == null) {
                         firstTokenTime = System.currentTimeMillis()
                     }

@@ -117,3 +117,42 @@ RunAnywhere.configure {
     $0.fineTuning.pollInterval = .minutes(30)
 }
 ```
+
+## Voice & Text Interaction Sources
+
+Each training interaction carries a `data_source` field so the server knows
+where it came from:
+
+| Source | Value | Description |
+|--------|-------|-------------|
+| Text chat | `text_chat` | Standard typed messages |
+| Voice chat | `voice_chat` | STT-transcribed voice prompts |
+| Video | `video_analysis` | Vision-based interactions |
+
+The Kotlin SDK provides convenience helpers:
+
+```kotlin
+// Text chat — automatic
+otaClient.recordChatInteraction(userPrompt, modelResponse, modelId)
+
+// Voice chat — sets data_source = "voice_chat"
+otaClient.recordVoiceInteraction(transcribedPrompt, modelResponse, modelId)
+```
+
+## Integration Test
+
+Run the full pipeline test against a running server:
+
+```bash
+# Terminal 1: start the server
+python -m runanywhere_finetune.main
+
+# Terminal 2: run the integration test
+python test_integration.py
+
+# Quick test (skips actual GPU training)
+python test_integration.py --skip-training
+```
+
+The test exercises: health check → upload data → start training →
+poll status → poll adapters → download adapter → verify stats.

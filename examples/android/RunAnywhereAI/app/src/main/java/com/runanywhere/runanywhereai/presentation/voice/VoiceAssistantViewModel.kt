@@ -8,6 +8,7 @@ import android.media.AudioTrack
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.runanywhere.runanywhereai.data.PersonalizationStore
 import com.runanywhere.runanywhereai.data.TrainingDataStore
 import com.runanywhere.runanywhereai.domain.models.SessionState
 import com.runanywhere.runanywhereai.domain.services.AudioCaptureService
@@ -23,6 +24,7 @@ import com.runanywhere.sdk.public.extensions.VoiceAgent.ComponentLoadState
 import com.runanywhere.sdk.public.extensions.VoiceAgent.VoiceSessionConfig
 import com.runanywhere.sdk.public.extensions.VoiceAgent.VoiceSessionEvent
 import com.runanywhere.sdk.public.extensions.processVoice
+import com.runanywhere.sdk.public.extensions.setVoiceSystemPrompt
 import com.runanywhere.sdk.public.extensions.startVoiceSession
 import com.runanywhere.sdk.public.extensions.stopVoiceSession
 import com.runanywhere.sdk.public.extensions.voiceAgentComponentStates
@@ -125,6 +127,7 @@ class VoiceAssistantViewModel(
 ) : AndroidViewModel(application) {
     // Training data capture
     private val trainingDataStore = TrainingDataStore.getInstance(application)
+    private val personalizationStore = PersonalizationStore.getInstance(application)
 
     // Audio capture service for microphone input
     private var audioCaptureService: AudioCaptureService? = null
@@ -778,6 +781,12 @@ class VoiceAssistantViewModel(
                         )
                     }
                     return@launch
+                }
+
+                // Inject personalization system prompt before starting session
+                personalizationStore.buildSystemPrompt()?.let { systemPrompt ->
+                    RunAnywhere.setVoiceSystemPrompt(systemPrompt)
+                    Log.i(TAG, "✨ Personalization system prompt set for voice session")
                 }
 
                 // Start voice session (for SDK state tracking)
